@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI 翻訳力デモ — ベトナム語
 
-## Getting Started
+ローカル LLM（Gemma / llama.cpp 常駐）の **翻訳力** を体感するためのデモアプリです。
+英語・日本語の翻訳は問題ないと分かっているため、相対的に難しい **ベトナム語** をターゲットにしています。観客がベトナム語を読めない前提でも品質が伝わるよう、結果を可視化する仕掛けを実装しています。
 
-First, run the development server:
+## 主な機能
+
+- **双方向翻訳**: 日本語 ↔ ベトナム語、英語 → ベトナム語、原文言語の自動検出に対応
+- **ストリーミング表示**: 主翻訳をトークン単位でリアルタイム表示
+- **トーン/敬体バリエーション**: フォーマル / カジュアル / ビジネスの3案を並列生成
+- **逆翻訳＋AI品質講評**: 後述
+
+## 「深掘り」と「逆翻訳」の役割
+
+このデモの核心は、**ベトナム語が読めなくても翻訳の良し悪しが分かる** ことです。そのために「深掘り」セクションを用意しています。
+
+### 深掘り（Deep-dive）
+
+主翻訳のストリーミングが終わったあと、画面下部に自動で表示されるセクションです。観客が訳文そのものを評価できない代わりに、**訳文を多角的に分解して品質の手がかりを提示する** 役割を持ちます。次の3要素で構成されます。
+
+1. **トーン別バリエーション** — 同じ原文をフォーマル / カジュアル / ビジネスで訳し分け、モデルがレジスタ（敬体・語調）をどこまで制御できるかを示す
+2. **逆翻訳**（下記）
+3. **品質講評** — 原文・訳文・逆翻訳の3点を AI 評価者に渡し、`スコア: X/5`（5段階）＋日本語の短評で忠実度・訳抜け・誤訳・ニュアンスのズレを指摘
+
+> 主翻訳は1リクエストでストリーミングし、深掘りは別エンドポイントで後追い生成します。これは単一の llama.cpp が実質直列実行であるため、主翻訳の「ライブ感」を損なわないための分離です。深掘りは観客が実際に見た訳文（主翻訳の確定テキスト）を対象に生成されます。
+
+### 逆翻訳（Back-translation）
+
+主翻訳で得たベトナム語を、**もう一度日本語へ訳し戻したもの** です。役割は次の2つです。
+
+- **意味ズレの可視化**: 原文と逆翻訳を見比べれば、ベトナム語を読めなくても「意味が保たれているか／訳抜け・誤訳・追加がないか」が一目で分かります
+- **品質講評の根拠**: 逆翻訳は品質講評の入力にもなり、AI 評価者が忠実度を判断する材料になります
+
+逆翻訳は流暢さよりも **忠実さを優先** するようプロンプトで指示しており、意訳で意味のズレが隠れないようにしています。
+
+## セットアップ
+
+### 前提
+
+- Node.js（Next.js 16 / React 19）
+- OpenAI 互換 API（`/v1/chat/completions`、`stream:true` 対応）を提供する **llama.cpp サーバが常駐起動済み**であること（Gemma モデル読み込み済み）
+
+### 環境変数
+
+`.env.example` をコピーして `.env.local` を作成します。
+
+```bash
+cp .env.example .env.local
+```
+
+| 変数 | 既定値 | 説明 |
+|---|---|---|
+| `LLAMA_BASE_URL` | `http://localhost:8080` | 常駐 llama.cpp のベース URL |
+| `LLAMA_MODEL` | `gemma` | llama.cpp に渡す model 名（llama.cpp 側では任意で可） |
+
+> `.env.local` を変更したら開発サーバの再起動が必要です（Next.js は起動時に環境変数を読み込みます）。
+
+### 起動
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+[http://localhost:3000](http://localhost:3000) を開きます。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 構成
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| パス | 役割 |
+|---|---|
+| `lib/llama.ts` | OpenAI 互換 llama.cpp クライアント（`chatStream` / `chatComplete`、`LlamaUnreachableError`） |
+| `lib/prompts.ts` | 主翻訳 / 逆翻訳 / 品質講評 / トーン3案のプロンプト＋パーサ（ベトナム語の声調記号を強制） |
+| `lib/languages.ts` | 言語の型・表示名（クライアント / サーバ共用） |
+| `app/api/translate/stream` | 主翻訳のストリーミング Route Handler（初回トークン前の不達は 502） |
+| `app/api/translate/extras` | 逆翻訳 → 品質講評 → トーン3案を逐次生成し JSON 返却 |
+| `app/page.tsx` | クライアント UI（言語セレクタ・ストリーム表示・深掘りパネル・エラーバナー） |
